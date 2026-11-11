@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BASIC to NASM (x86_64 Linux) Compiler & IDE</title>
+  <style>
+    :root {
+      --bg-main: #ffffff;
+      --bg-panel: #ffffff;
+      --bg-subtle: #f8fafc;
+      --border-color: #e2e8f0;
+      --border-dark: #cbd5e1;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --danger: #dc2626;
+      --success: #16a34a;
+      --font-mono: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
+      --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-main);
+      color: var(--text-main);
+      font-family: var(--font-sans);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Toolbar Header */
+    header {
+      background: #ffffff;
+      border-bottom: 1px solid var(--border-color);
+      padding: 10px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+      z-index: 10;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .brand h1 {
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #0f172a;
+      letter-spacing: -0.5px;
+    }
+
+    .brand .badge {
+      font-size: 0.72rem;
+      background: #eff6ff;
+      color: var(--primary);
+      border: 1px solid #bfdbfe;
+      padding: 2px 8px;
+      border-radius: 4px;
+      font-weight: 600;
+      text-transform: uppercase;
+    }
+
+    .controls {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    select, button {
+      font-family: inherit;
+      font-size: 0.85rem;
+      padding: 7px 14px;
+      border-radius: 6px;
+      border: 1px solid var(--border-dark);
+      background: #ffffff;
+      color: var(--text-main);
+      cursor: pointer;
+      outline: none;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-weight: 500;
+    }
+
+    select:hover, button:hover {
+      background: var(--bg-subtle);
+      border-color: #94a3b8;
+    }
+
+    button.btn-primary {
+      background: var(--primary);
+      border-color: var(--primary);
+      color: #ffffff;
+    }
+
+    button.btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    /* Main Workspace */
+    .workspace {
+      flex: 1;
+      display: flex;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .pane {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border-color);
+      min-width: 0;
+      background: #ffffff;
+    }
+
+    .pane:last-child {
+      border-right: none;
+    }
+
+    .pane-header {
+      background: #ffffff;
+      padding: 8px 16px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .editor-wrapper {
+      flex: 1;
+      display: flex;
+      position: relative;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .line-numbers {
+      width: 44px;
+      padding: 12px 6px;
+      background: #ffffff;
+      color: #94a3b8;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 20px;
+      text-align: right;
+      user-select: none;
+      border-right: 1px solid var(--border-color);
+      overflow: hidden;
+    }
+
+    textarea {
+      flex: 1;
+      padding: 12px 14px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      line-height: 20px;
+      color: var(--text-main);
+      background: #ffffff;
+      border: none;
+      outline: none;
+      resize: none;
+      white-space: pre;
+      overflow: auto;
+      tab-size: 4;
+    }
+
+    /* Diagnostics Banner */
+    #status-bar {
+      padding: 8px 16px;
+      background: #ffffff;
+      border-top: 1px solid var(--border-color);
+      font-size: 0.8rem;
+      font-family: var(--font-mono);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .status-ok {
+      color: var(--success);
+      font-weight: 600;
+    }
+
+    .status-error {
+      color: var(--danger);
+      font-weight: 600;
+    }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <h1>BASIC &rarr; NASM</h1>
+      <span class="badge">x86-64 Linux Syscalls</span>
+    </div>
+    <div class="controls">
+      <select id="sampleSelect" title="Load sample program">
+        <option value="" disabled selected>Load Sample Program...</option>
+        <option value="fibonacci">Fibonacci Series</option>
+        <option value="factorial">Factorial (While Loop)</option>
+        <option value="prime">Prime Number Check</option>
+        <option value="input_demo">Input and Calculation</option>
+      </select>
+      <button id="compileBtn" class="btn-primary" title="Compile BASIC into NASM">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        Compile
+      </button>
+      <button id="copyBtn" title="Copy NASM to Clipboard">Copy Assembly</button>
+      <button id="downloadBtn" title="Download .asm file">Download .asm</button>
+    </div>
+  </header>
+
+  <div class="workspace">
+    <!-- BASIC Input Pane -->
+    <div class="pane">
+      <div class="pane-header">
+        <span>BASIC Source Code (Label-Based, No Line Numbers)</span>
+        <span style="font-size:0.7rem; font-weight:normal;">Excludes: RND, TRIG, DATES, GRAPHICS</span>
+      </div>
+      <div class="editor-wrapper">
+        <div id="inputGutter" class="line-numbers">1</div>
+        <textarea id="basicInput" spellcheck="false" placeholder="Write BASIC code here using labels..."></textarea>
+      </div>
+    </div>
+
+    <!-- NASM Output Pane -->
+    <div class="pane">
+      <div class="pane-header">
+        <span>Generated NASM Assembly (Linux x86_64)</span>
+        <span style="font-size:0.7rem; font-weight:normal;">Target: ELF64 (Syscalls 0, 1, 60)</span>
+      </div>
+      <div class="editor-wrapper">
+        <div id="outputGutter" class="line-numbers">1</div>
+        <textarea id="nasmOutput" readonly spellcheck="false" placeholder="Assembly output will appear here..."></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div id="status-bar">
+    <span id="statusMessage" class="status-ok">Compiler Ready.</span>
+    <span id="cursorPos" style="color:var(--text-muted);">Lines: 0 | Output size: 0 bytes</span>
+  </div>
+
+  <script>
+    // --- SAMPLE PROGRAMS ---
+    const SAMPLES = {
+      fibonacci: 
+`' Fibonacci Sequence in Structured BASIC
+' Prints first N fibonacci numbers
+
+PRINT "Fibonacci Sequence Generator"
+N = 10
+A = 0
+B = 1
+I = 0
+
+fib_loop:
+IF I >= N THEN GOTO done
+PRINT A
+NEXT_VAL = A + B
+A = B
+B = NEXT_VAL
+I = I + 1
+GOTO fib_loop
+
+done:
+PRINT "Completed successfully."
+END`,
+
+      factorial:
+`' Factorial Calculator using WHILE loop
+N = 7
+RESULT = 1
+TEMP = N
+
+WHILE TEMP > 1
+    RESULT = RESULT * TEMP
+    TEMP = TEMP - 1
+WEND
+
+PRINT "Factorial calculated:"
+PRINT RESULT
+END`,
+
+      prime:
+`' Prime Number Checker
+NUM = 29
+IS_PRIME = 1
+DIVISOR = 2
+LIMIT = NUM / 2
+
+check_loop:
+IF DIVISOR > LIMIT THEN GOTO print_result
+REM Remainder modulo check
+REM If NUM % DIVISOR == 0, then composite
+REM Emulated using: REM_VAL = NUM - ((NUM / DIVISOR) * DIVISOR)
+QUOTIENT = NUM / DIVISOR
+PROD = QUOTIENT * DIVISOR
+IF NUM = PROD THEN GOTO is_composite
+DIVISOR = DIVISOR + 1
+GOTO check_loop
+
+is_composite:
+IS_PRIME = 0
+
+print_result:
+IF IS_PRIME = 1 THEN GOTO prime_msg
+PRINT "Number is Composite"
+GOTO finished
+
+prime_msg:
+PRINT "Number is Prime"
+
+finished:
+END`,
+
+      input_demo:
+`' Interactive Input & Arithmetic Demo
+PRINT "Enter an integer:"
+INPUT USER_VAL
+
+PRINT "You entered:"
+PRINT USER_VAL
+
+DOUBLED = USER_VAL * 2
+PRINT "Twice your number is:"
+PRINT DOUBLED
+END`
+    };
+
+    // --- COMPILER IMPLEMENTATION ---
+    class BasicCompiler {
+      constructor(source) {
+        this.source = source;
+        this.lines = source.split(/\r?\n/);
+        this.variables = new Set();
+        this.strings = [];
+        this.asmText = [];
+        this.labelCounter = 0;
+        this.whileStack = [];
+        this.forStack = [];
+      }
+
+      newLabel(prefix = "L") {
+        return `_${prefix}_${++this.labelCounter}`;
+      }
+
+      addString(str) {
+        const id = `str_${this.strings.length}`;
+        this.strings.push({ id, value: str });
+        return id;
+      }
+
+      compile() {
+        for (let lineIndex = 0; lineIndex < this.lines.length; lineIndex++) {
+          let line = this.lines[lineIndex].trim();
+          const lineNum = lineIndex + 1;
+
+          if (!line || line.startsWith("'") || line.toUpperCase().startsWith("REM")) {
+            continue;
+          }
+
+          // Strip inline comments
+          let inQuote = false;
+          let commentIdx = -1;
+          for (let i = 0; i < line.length; i++) {
+            if (line[i] === '"') inQuote = !inQuote;
+            if (!inQuote && (line[i] === "'" || (line.substr(i, 4).toUpperCase() === "REM" && (i===0 || /\s/.test(line[i-1]))))) {
+              commentIdx = i;
+              break;
+            }
+          }
+          if (commentIdx !== -1) {
+            line = line.substring(0, commentIdx).trim();
+            if (!line) continue;
+          }
+
+          // Check if line is a label declaration: e.g. "loop:" or "main_start:"
+          if (line.endsWith(":") && !line.includes(" ")) {
+            const rawLabel = line.slice(0, -1).trim();
+            this.asmText.push(`usr_${rawLabel}:`);
+            continue;
+          }
+
+          this.compileStatement(line, lineNum);
+        }
+
+        return this.generateFullAsm();
+      }
+
+      compileStatement(line, lineNum) {
+        const upper = line.toUpperCase();
+
+        if (upper.startsWith("PRINT")) {
+          this.compilePrint(line.slice(5).trim(), lineNum);
+        } else if (upper.startsWith("INPUT")) {
+          this.compileInput(line.slice(5).trim(), lineNum);
+        } else if (upper.startsWith("IF")) {
+          this.compileIf(line.slice(2).trim(), lineNum);
+        } else if (upper.startsWith("GOTO")) {
+          const target = line.slice(4).trim();
+          this.asmText.push(`    jmp usr_${target}`);
+        } else if (upper.startsWith("GOSUB")) {
+          const target = line.slice(5).trim();
+          this.asmText.push(`    call usr_${target}`);
+        } else if (upper === "RETURN") {
+          this.asmText.push(`    ret`);
+        } else if (upper.startsWith("WHILE")) {
+          this.compileWhile(line.slice(5).trim(), lineNum);
+        } else if (upper === "WEND") {
+          if (this.whileStack.length === 0) {
+            throw new Error(`Line ${lineNum}: WEND without matching WHILE`);
+          }
+          const { startLbl, endLbl } = this.whileStack.pop();
+          this.asmText.push(`    jmp ${startLbl}`);
+          this.asmText.push(`${endLbl}:`);
+        } else if (upper.startsWith("FOR")) {
+          this.compileFor(line.slice(3).trim(), lineNum);
+        } else if (upper.startsWith("NEXT")) {
+          this.compileNext(line.slice(4).trim(), lineNum);
+        } else if (upper === "END" || upper === "STOP") {
+          this.asmText.push(`    mov rax, 60`);
+          this.asmText.push(`    xor rdi, rdi`);
+          this.asmText.push(`    syscall`);
+        } else if (upper.startsWith("LET ")) {
+          this.compileAssignment(line.slice(4).trim(), lineNum);
+        } else if (line.includes("=")) {
+          this.compileAssignment(line, lineNum);
+        } else {
+          throw new Error(`Line ${lineNum}: Unrecognized command "${line}"`);
+        }
+      }
+
+      compilePrint(args, lineNum) {
+        if (!args) {
+          this.asmText.push(`    call _print_nl`);
+          return;
+        }
+
+        // Tokenize print expressions (strings or math expressions separated by ; or ,)
+        let idx = 0;
+        let current = "";
+        let inQuote = false;
+        const tokens = [];
+
+        while (idx < args.length) {
+          const ch = args[idx];
+          if (ch === '"') {
+            inQuote = !inQuote;
+            current += ch;
+          } else if ((ch === ';' || ch === ',') && !inQuote) {
+            if (current.trim()) tokens.push(current.trim());
+            current = "";
+          } else {
+            current += ch;
+          }
+          idx++;
+        }
+        if (current.trim()) tokens.push(current.trim());
+
+        for (const token of tokens) {
+          if (token.startsWith('"') && token.endsWith('"')) {
+            const rawStr = token.slice(1, -1);
+            const strId = this.addString(rawStr);
+            this.asmText.push(`    lea rsi, [rel ${strId}]`);
+            this.asmText.push(`    mov rdx, ${strId}_len`);
+            this.asmText.push(`    call _print_str`);
+          } else {
+            this.compileExpression(token, lineNum);
+            this.asmText.push(`    call _print_int`);
+          }
+        }
+        this.asmText.push(`    call _print_nl`);
+      }
+
+      compileInput(args, lineNum) {
+        let prompt = "";
+        let varName = "";
+
+        if (args.startsWith('"')) {
+          const endQuote = args.indexOf('"', 1);
+          if (endQuote !== -1) {
+            prompt = args.substring(1, endQuote);
+            let rest = args.substring(endQuote + 1).trim();
+            if (rest.startsWith(",") || rest.startsWith(";")) rest = rest.slice(1).trim();
+            varName = rest;
+          }
+        } else {
+          varName = args.trim();
+        }
+
+        if (!varName || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(varName)) {
+          throw new Error(`Line ${lineNum}: Invalid variable name for INPUT: "${varName}"`);
+        }
+
+        this.variables.add(varName);
+
+        if (prompt) {
+          const strId = this.addString(prompt + " ");
+          this.asmText.push(`    lea rsi, [rel ${strId}]`);
+          this.asmText.push(`    mov rdx, ${strId}_len`);
+          this.asmText.push(`    call _print_str`);
+        }
+
+        this.asmText.push(`    call _read_int`);
+        this.asmText.push(`    mov [rel var_${varName}], rax`);
+      }
+
+      compileAssignment(line, lineNum) {
+        const eqIdx = line.indexOf('=');
+        if (eqIdx === -1) throw new Error(`Line ${lineNum}: Assignment missing '='`);
+        const varName = line.slice(0, eqIdx).trim();
+        const expr = line.slice(eqIdx + 1).trim();
+
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(varName)) {
+          throw new Error(`Line ${lineNum}: Invalid assignment target: "${varName}"`);
+        }
+
+        this.variables.add(varName);
+        this.compileExpression(expr, lineNum);
+        this.asmText.push(`    mov [rel var_${varName}], rax`);
+      }
+
+      compileIf(conditionBody, lineNum) {
+        const thenIdx = conditionBody.toUpperCase().indexOf("THEN");
+        if (thenIdx === -1) {
+          throw new Error(`Line ${lineNum}: IF without THEN`);
+        }
+
+        const condStr = conditionBody.slice(0, thenIdx).trim();
+        let actionStr = conditionBody.slice(thenIdx + 4).trim();
+        if (actionStr.toUpperCase().startsWith("GOTO ")) {
+          actionStr = actionStr.slice(5).trim();
+        }
+
+        const comp = this.parseComparison(condStr, lineNum);
+        
+        // Evaluate left into rax
+        this.compileExpression(comp.left, lineNum);
+        this.asmText.push(`    push rax`);
+        // Evaluate right into rax
+        this.compileExpression(comp.right, lineNum);
+        this.asmText.push(`    mov rbx, rax`);
+        this.asmText.push(`    pop rax`);
+        this.asmText.push(`    cmp rax, rbx`);
+
+        // Target jump if condition is met
+        let jmpOp = "";
+        switch (comp.op) {
+          case "=":  jmpOp = "je"; break;
+          case "<>": jmpOp = "jne"; break;
+          case "<":  jmpOp = "jl"; break;
+          case ">":  jmpOp = "jg"; break;
+          case "<=": jmpOp = "jle"; break;
+          case ">=": jmpOp = "jge"; break;
+          default: throw new Error(`Line ${lineNum}: Unknown comparison operator "${comp.op}"`);
+        }
+
+        this.asmText.push(`    ${jmpOp} usr_${actionStr}`);
+      }
+
+      compileWhile(condStr, lineNum) {
+        const startLbl = this.newLabel("while_start");
+        const endLbl = this.newLabel("while_end");
+        this.whileStack.push({ startLbl, endLbl });
+
+        this.asmText.push(`${startLbl}:`);
+        const comp = this.parseComparison(condStr, lineNum);
+        this.compileExpression(comp.left, lineNum);
+        this.asmText.push(`    push rax`);
+        this.compileExpression(comp.right, lineNum);
+        this.asmText.push(`    mov rbx, rax`);
+        this.asmText.push(`    pop rax`);
+        this.asmText.push(`    cmp rax, rbx`);
+
+        // Invert jump to break out
+        let falseJmp = "";
+        switch (comp.op) {
+          case "=":  falseJmp = "jne"; break;
+          case "<>": falseJmp = "je"; break;
+          case "<":  falseJmp = "jge"; break;
+          case ">":  falseJmp = "jle"; break;
+          case "<=": falseJmp = "jg"; break;
+          case ">=": falseJmp = "jl"; break;
+        }
+        this.asmText.push(`    ${falseJmp} ${endLbl}`);
+      }
+
+      compileFor(statement, lineNum) {
+        // Syntax: FOR I = 1 TO 10 [STEP 2]
+        const m = statement.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+?)\s+TO\s+(.+?)(?:\s+STEP\s+(.+))?$/i);
+        if (!m) {
+          throw new Error(`Line ${lineNum}: Syntax error in FOR statement`);
+        }
+        const varName = m[1];
+        const startVal = m[2];
+        const endVal = m[3];
+        const stepVal = m[4] || "1";
+
+        this.variables.add(varName);
+
+        // Init variable
+        this.compileExpression(startVal, lineNum);
+        this.asmText.push(`    mov [rel var_${varName}], rax`);
+
+        const loopLbl = this.newLabel("for_loop");
+        const endLbl = this.newLabel("for_end");
+
+        this.asmText.push(`${loopLbl}:`);
+        // Check condition: var <= endVal (if step > 0) or var >= endVal
+        this.compileExpression(varName, lineNum);
+        this.asmText.push(`    push rax`);
+        this.compileExpression(endVal, lineNum);
+        this.asmText.push(`    mov rbx, rax`);
+        this.asmText.push(`    pop rax`);
+        this.asmText.push(`    cmp rax, rbx`);
+
+        // Default assume positive step
+        this.asmText.push(`    jg ${endLbl}`);
+
+        this.forStack.push({ varName, stepVal, loopLbl, endLbl });
+      }
+
+      compileNext(varName, lineNum) {
+        if (this.forStack.length === 0) {
+          throw new Error(`Line ${lineNum}: NEXT without FOR`);
+        }
+        const loopInfo = this.forStack.pop();
+        if (varName && varName.trim().toUpperCase() !== loopInfo.varName.toUpperCase()) {
+          throw new Error(`Line ${lineNum}: Variable mismatch in NEXT (Expected ${loopInfo.varName})`);
+        }
+
+        // Add step to variable
+        this.compileExpression(loopInfo.stepVal, lineNum);
+        this.asmText.push(`    add [rel var_${loopInfo.varName}], rax`);
+        this.asmText.push(`    jmp ${loopInfo.loopLbl}`);
+        this.asmText.push(`${loopInfo.endLbl}:`);
+      }
+
+      parseComparison(condStr, lineNum) {
+        const ops = ["<=", ">=", "<>", "=", "<", ">"];
+        for (const op of ops) {
+          const idx = condStr.indexOf(op);
+          if (idx !== -1) {
+            return {
+              left: condStr.slice(0, idx).trim(),
+              op: op,
+              right: condStr.slice(idx + op.length).trim()
+            };
+          }
+        }
+        throw new Error(`Line ${lineNum}: Expected comparison operator in condition: "${condStr}"`);
+      }
+
+      // Recursive descent parser for expressions: + - * / %
+      compileExpression(exprStr, lineNum) {
+        const tokens = this.tokenizeExpr(exprStr, lineNum);
+        let pos = 0;
+
+        const parseFactor = () => {
+          let token = tokens[pos++];
+          if (!token) throw new Error(`Line ${lineNum}: Unexpected end of expression`);
+
+          // Unary minus
+          if (token === "-") {
+            parseFactor();
+            this.asmText.push(`    neg rax`);
+            return;
+          }
+          if (token === "+") {
+            parseFactor();
+            return;
+          }
+
+          if (token === "(") {
+            parseAddSub();
+            if (tokens[pos++] !== ")") {
+              throw new Error(`Line ${lineNum}: Missing closing parenthesis`);
+            }
+            return;
+          }
+
+          // Number literal
+          if (/^\d+$/.test(token)) {
+            this.asmText.push(`    mov rax, ${token}`);
+            return;
+          }
+
+          // Variable
+          if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(token)) {
+            this.variables.add(token);
+            this.asmText.push(`    mov rax, [rel var_${token}]`);
+            return;
+          }
+
+          throw new Error(`Line ${lineNum}: Invalid token "${token}"`);
+        };
+
+        const parseMulDiv = () => {
+          parseFactor();
+          while (pos < tokens.length && (tokens[pos] === "*" || tokens[pos] === "/" || tokens[pos] === "%")) {
+            const op = tokens[pos++];
+            this.asmText.push(`    push rax`);
+            parseFactor();
+            this.asmText.push(`    mov rbx, rax`);
+            this.asmText.push(`    pop rax`);
+            if (op === "*") {
+              this.asmText.push(`    imul rax, rbx`);
+            } else if (op === "/" || op === "%") {
+              this.asmText.push(`    cqo`);
+              this.asmText.push(`    idiv rbx`);
+              if (op === "%") {
+                this.asmText.push(`    mov rax, rdx`); // Remainder in rdx
+              }
+            }
+          }
+        };
+
+        const parseAddSub = () => {
+          parseMulDiv();
+          while (pos < tokens.length && (tokens[pos] === "+" || tokens[pos] === "-")) {
+            const op = tokens[pos++];
+            this.asmText.push(`    push rax`);
+            parseMulDiv();
+            this.asmText.push(`    mov rbx, rax`);
+            this.asmText.push(`    pop rax`);
+            if (op === "+") {
+              this.asmText.push(`    add rax, rbx`);
+            } else {
+              this.asmText.push(`    sub rax, rbx`);
+            }
+          }
+        };
+
+        parseAddSub();
+      }
+
+      tokenizeExpr(str, lineNum) {
+        const tokens = [];
+        let i = 0;
+        while (i < str.length) {
+          const ch = str[i];
+          if (/\s/.test(ch)) {
+            i++;
+            continue;
+          }
+          if ("+-*/%()".includes(ch)) {
+            tokens.push(ch);
+            i++;
+            continue;
+          }
+          if (/\d/.test(ch)) {
+            let num = "";
+            while (i < str.length && /\d/.test(str[i])) {
+              num += str[i++];
+            }
+            tokens.push(num);
+            continue;
+          }
+          if (/[A-Za-z_]/.test(ch)) {
+            let ident = "";
+            while (i < str.length && /[A-Za-z0-9_]/.test(str[i])) {
+              ident += str[i++];
+            }
+            tokens.push(ident);
+            continue;
+          }
+          throw new Error(`Line ${lineNum}: Illegal character in expression: '${ch}'`);
+        }
+        return tokens;
+      }
+
+      generateFullAsm() {
+        let asm = [];
+        asm.push(`; ==============================================================`);
+        asm.push(`; Generated by BASIC to NASM Compiler`);
+        asm.push(`; Target: Linux x86_64 ELF`);
+        asm.push(`; To assemble and link:`);
+        asm.push(`;   nasm -f elf64 output.asm -o output.o`);
+        asm.push(`;   ld output.o -o output`);
+        asm.push(`;   ./output`);
+        asm.push(`; ==============================================================\n`);
+
+        asm.push(`default rel\n`);
+
+        // DATA SECTION
+        asm.push(`section .data`);
+        asm.push(`    _newline_char db 10`);
+        for (const s of this.strings) {
+          // Escaping double quotes for nasm string
+          const escaped = s.value.replace(/"/g, '", 34, "');
+          asm.push(`    ${s.id} db "${escaped}"`);
+          asm.push(`    ${s.id}_len equ $ - ${s.id}`);
+        }
+        asm.push(``);
+
+        // BSS SECTION
+        asm.push(`section .bss`);
+        asm.push(`    _io_buf resb 64`);
+        asm.push(`    _print_buf resb 32`);
+        for (const v of this.variables) {
+          asm.push(`    var_${v} resq 1`);
+        }
+        asm.push(``);
+
+        // TEXT SECTION
+        asm.push(`section .text`);
+        asm.push(`    global _start\n`);
+        asm.push(`_start:`);
+
+        // Append user generated instructions
+        for (const instr of this.asmText) {
+          asm.push(instr);
+        }
+
+        // Implicit graceful exit
+        asm.push(`\n    ; Exit syscall`);
+        asm.push(`    mov rax, 60         ; sys_exit`);
+        asm.push(`    xor rdi, rdi        ; exit code 0`);
+        asm.push(`    syscall\n`);
+
+        // RUNTIME HELPER ROUTINES (Pure Linux 64-bit Syscalls)
+        asm.push(`; --- RUNTIME HELPERS (Linux Syscalls) ---`);
+        asm.push(`_print_str:`);
+        asm.push(`    mov rax, 1          ; sys_write`);
+        asm.push(`    mov rdi, 1          ; stdout`);
+        asm.push(`    syscall`);
+        asm.push(`    ret\n`);
+
+        asm.push(`_print_nl:`);
+        asm.push(`    mov rax, 1`);
+        asm.push(`    mov rdi, 1`);
+        asm.push(`    lea rsi, [rel _newline_char]`);
+        asm.push(`    mov rdx, 1`);
+        asm.push(`    syscall`);
+        asm.push(`    ret\n`);
+
+        asm.push(`_print_int:`);
+        asm.push(`    push rbp`);
+        asm.push(`    mov rbp, rsp`);
+        asm.push(`    lea rdi, [rel _print_buf + 31]`);
+        asm.push(`    mov byte [rdi], 0`);
+        asm.push(`    mov rbx, 10`);
+        asm.push(`    mov r8, rax`);
+        asm.push(`    test rax, rax`);
+        asm.push(`    jns .pos`);
+        asm.push(`    neg rax`);
+        asm.push(`.pos:`);
+        asm.push(`.loop:`);
+        asm.push(`    dec rdi`);
+        asm.push(`    xor rdx, rdx`);
+        asm.push(`    div rbx`);
+        asm.push(`    add dl, '0'`);
+        asm.push(`    mov [rdi], dl`);
+        asm.push(`    test rax, rax`);
+        asm.push(`    jnz .loop`);
+        asm.push(`    test r8, r8`);
+        asm.push(`    jns .done`);
+        asm.push(`    dec rdi`);
+        asm.push(`    mov byte [rdi], '-'`);
+        asm.push(`.done:`);
+        asm.push(`    mov rsi, rdi`);
+        asm.push(`    lea rdx, [rel _print_buf + 31]`);
+        asm.push(`    sub rdx, rdi`);
+        asm.push(`    mov rax, 1`);
+        asm.push(`    mov rdi, 1`);
+        asm.push(`    syscall`);
+        asm.push(`    pop rbp`);
+        asm.push(`    ret\n`);
+
+        asm.push(`_read_int:`);
+        asm.push(`    push rbp`);
+        asm.push(`    mov rbp, rsp`);
+        asm.push(`    mov rax, 0          ; sys_read`);
+        asm.push(`    mov rdi, 0          ; stdin`);
+        asm.push(`    lea rsi, [rel _io_buf]`);
+        asm.push(`    mov rdx, 63`);
+        asm.push(`    syscall`);
+        asm.push(`    xor rax, rax`);
+        asm.push(`    xor rcx, rcx`);
+        asm.push(`    lea rsi, [rel _io_buf]`);
+        asm.push(`    xor r8, r8          ; sign flag`);
+        asm.push(`.skip_ws:`);
+        asm.push(`    mov cl, [rsi]`);
+        asm.push(`    cmp cl, ' '`);
+        asm.push(`    je .adv`);
+        asm.push(`    cmp cl, 9`);
+        asm.push(`    je .adv`);
+        asm.push(`    jmp .check_sign`);
+        asm.push(`.adv:`);
+        asm.push(`    inc rsi`);
+        asm.push(`    jmp .skip_ws`);
+        asm.push(`.check_sign:`);
+        asm.push(`    cmp cl, '-'`);
+        asm.push(`    jne .parse_digits`);
+        asm.push(`    mov r8, 1`);
+        asm.push(`    inc rsi`);
+        asm.push(`.parse_digits:`);
+        asm.push(`    mov cl, [rsi]`);
+        asm.push(`    cmp cl, '0'`);
+        asm.push(`    jb .finish`);
+        asm.push(`    cmp cl, '9'`);
+        asm.push(`    ja .finish`);
+        asm.push(`    sub cl, '0'`);
+        asm.push(`    imul rax, 10`);
+        asm.push(`    add rax, rcx`);
+        asm.push(`    inc rsi`);
+        asm.push(`    jmp .parse_digits`);
+        asm.push(`.finish:`);
+        asm.push(`    test r8, r8`);
+        asm.push(`    jz .ret`);
+        asm.push(`    neg rax`);
+        asm.push(`.ret:`);
+        asm.push(`    pop rbp`);
+        asm.push(`    ret`);
+
+        return asm.join("\n");
+      }
+    }
+
+    // --- DOM & IDE CONTROLLER ---
+    const basicInput = document.getElementById("basicInput");
+    const nasmOutput = document.getElementById("nasmOutput");
+    const compileBtn = document.getElementById("compileBtn");
+    const copyBtn = document.getElementById("copyBtn");
+    const downloadBtn = document.getElementById("downloadBtn");
+    const sampleSelect = document.getElementById("sampleSelect");
+    const statusMsg = document.getElementById("statusMessage");
+    const cursorPos = document.getElementById("cursorPos");
+    const inputGutter = document.getElementById("inputGutter");
+    const outputGutter = document.getElementById("outputGutter");
+
+    function updateGutters() {
+      const inCount = basicInput.value.split('\n').length;
+      inputGutter.innerHTML = Array.from({length: inCount}, (_, i) => i + 1).join('<br>');
+
+      const outCount = nasmOutput.value ? nasmOutput.value.split('\n').length : 1;
+      outputGutter.innerHTML = Array.from({length: outCount}, (_, i) => i + 1).join('<br>');
+
+      cursorPos.textContent = `BASIC Lines: ${inCount} | Assembly Size: ${new Blob([nasmOutput.value]).size} bytes`;
+    }
+
+    // Synchronize scrolling of gutters
+    basicInput.addEventListener("scroll", () => {
+      inputGutter.scrollTop = basicInput.scrollTop;
+    });
+    nasmOutput.addEventListener("scroll", () => {
+      outputGutter.scrollTop = nasmOutput.scrollTop;
+    });
+
+    basicInput.addEventListener("input", updateGutters);
+
+    function runCompilation() {
+      try {
+        const compiler = new BasicCompiler(basicInput.value);
+        const result = compiler.compile();
+        nasmOutput.value = result;
+        statusMsg.className = "status-ok";
+        statusMsg.textContent = "Compilation Successful! Valid x86-64 NASM emitted.";
+      } catch (err) {
+        statusMsg.className = "status-error";
+        statusMsg.textContent = "Error: " + err.message;
+      }
+      updateGutters();
+    }
+
+    compileBtn.addEventListener("click", runCompilation);
+
+    sampleSelect.addEventListener("change", (e) => {
+      const code = SAMPLES[e.target.value];
+      if (code) {
+        basicInput.value = code;
+        runCompilation();
+      }
+    });
+
+    copyBtn.addEventListener("click", () => {
+      if (!nasmOutput.value) return;
+      navigator.clipboard.writeText(nasmOutput.value).then(() => {
+        const orig = copyBtn.innerText;
+        copyBtn.innerText = "Copied!";
+        setTimeout(() => copyBtn.innerText = orig, 1500);
+      });
+    });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!nasmOutput.value) return;
+      const blob = new Blob([nasmOutput.value], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "program.asm";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // Support Tab key indentation inside the editor
+    basicInput.addEventListener("keydown", (e) => {
+      if (e.key === "Tab") {
+        e.preventDefault();
+        const start = basicInput.selectionStart;
+        const end = basicInput.selectionEnd;
+        basicInput.value = basicInput.value.substring(0, start) + "    " + basicInput.value.substring(end);
+        basicInput.selectionStart = basicInput.selectionEnd = start + 4;
+        updateGutters();
+      }
+    });
+
+    // Initial load
+    basicInput.value = SAMPLES.fibonacci;
+    runCompilation();
+  </script>
+</body>
+</html>
